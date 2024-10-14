@@ -2,7 +2,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const axios = require('axios');
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-const DISCORD_BOT_TOKEN = 'MTI2NjY2MjU0MTI5MTk0NjAyNA.GMwT1u.R-gVAxH5X6WBrIkzdLvFd-nQoqeCEm7zKvGdCw';  
+const DISCORD_BOT_TOKEN = ' ';  
 const URL_SHORTENER_API = 'http://localhost:8001/url';  
 const BASE_SHORT_URL = 'http://localhost:8001/'; 
 
@@ -36,4 +36,4 @@ client.on('messageCreate', async message => {
     }
 });
 
-client.login('MTI2NjY2MjU0MTI5MTk0NjAyNA.GMwT1u.R-gVAxH5X6WBrIkzdLvFd-nQoqeCEm7zKvGdCw');
+client.login(' ');
