@@ -1,39 +1,43 @@
-const { Client, GatewayIntentBits } = require('discord.js');
-const axios = require('axios');
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const fs = require('fs');
+const { Client, GatewayIntentBits, Collection } = require('discord.js');
+require('dotenv').config();
 
-const DISCORD_BOT_TOKEN = ' ';  
-const URL_SHORTENER_API = 'http://localhost:8001/url';  
-const BASE_SHORT_URL = 'http://localhost:8001/'; 
-
-client.on('ready', () => {
-    console.log(`Logged in as ${client.user.tag}!`);
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+    ],
 });
 
-client.on('messageCreate', async message => {
-    if (message.author.bot) return; // Ignore messages from other bots
+client.commands = new Collection();
+const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
 
-    if (message.content.startsWith('!shorten')) {
-        const urlToShorten = message.content.split(' ')[1];
+for (const file of commandFiles) {
+    const command = require(`./commands/${file}`);
+    client.commands.set(command.name, command);
+}
 
-        if (!urlToShorten) {
-            return message.channel.send('Please provide a URL to shorten.');
-        }
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}!`);
+    client.user.setActivity('your activity', { type: 'WATCHING' }); 
+});
 
-        try {
-            const response = await axios.post(URL_SHORTENER_API, { url: urlToShorten }, {
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
+client.on('messageCreate', async (message) => {
+    if (message.author.bot || !message.content.startsWith('!')) return;
 
-            const shortenedUrl = `${BASE_SHORT_URL}${response.data.id}`;
-            message.channel.send(`Shortened URL: ${shortenedUrl}`);
-        } catch (error) {
-            console.error('Error:', error.response ? error.response.data : error.message);
-            message.channel.send('Error shortening URL.');
-        }
+    const args = message.content.slice(1).trim().split(/ +/);
+    const commandName = args.shift().toLowerCase();
+
+    const command = client.commands.get(commandName);
+    if (!command) return;
+
+    try {
+        await command.execute(message, args);
+    } catch (error) {
+        console.error(`Error executing command ${commandName}:`, error);
+        message.channel.send('There was an error executing that command.');
     }
 });
 
-client.login(' ');
+client.login(process.env.DISCORD_BOT_TOKEN);
