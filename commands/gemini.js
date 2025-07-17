@@ -98,7 +98,6 @@ module.exports = {
     },
 };
 
-// Setup function for Gemini API key
 async function handleGeminiSetup(message, args, userId) {
     if (!args[0]) {
         return message.reply('Please provide your Gemini API key: `!gemini setup YOUR_GEMINI_API_KEY`\n\n📋 **How to get your free Gemini API key:**\n1. Visit: https://makersuite.google.com/app/apikey\n2. Sign in with your Google account\n3. Click "Create API Key"\n4. Copy your key and use: `!gemini setup YOUR_KEY`\n\n*Your key will be stored securely and only used for your requests.*');
@@ -166,7 +165,6 @@ async function storeConversation(userId, channelId, userMessage, aiResponse) {
     await setCache(historyKey, JSON.stringify(trimmedHistory), 86400 * 7);
 }
 
-// Send long responses in chunks (copied from RAG)
 async function sendResponseWithTyping(channel, response) {
     const chunks = splitMessage(response, 1500);
     for (let i = 0; i < chunks.length; i++) {
