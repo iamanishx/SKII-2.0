@@ -79,10 +79,9 @@ module.exports = {
 
             if (content) {
                 await storeConversation(userId, channelId, prompt, content);
-                
                 await vectorDB.storeConversation(userId, channelId, prompt, content, 'gemini-2.0-flash-exp', null);
-                
-                return message.channel.send(content);
+                await sendResponseWithTyping(message.channel, content);
+                return;
             } else {
                 return message.reply('No response received from Gemini.');
             }
@@ -165,4 +164,39 @@ async function storeConversation(userId, channelId, userMessage, aiResponse) {
     const trimmedHistory = history.slice(-12);
     
     await setCache(historyKey, JSON.stringify(trimmedHistory), 86400 * 7);
+}
+
+// Send long responses in chunks (copied from RAG)
+async function sendResponseWithTyping(channel, response) {
+    const chunks = splitMessage(response, 1500);
+    for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        await channel.sendTyping();
+        const typingDelay = Math.min(Math.max(chunk.length * 30, 1000), 4000);
+        await new Promise(resolve => setTimeout(resolve, typingDelay));
+        await channel.send(chunk);
+        if (i < chunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 800));
+        }
+    }
+}
+
+function splitMessage(message, maxLength = 2000) {
+    const chunks = [];
+    while (message.length > 0) {
+        let chunk = message.slice(0, maxLength);
+        const lastNewline = chunk.lastIndexOf('\n');
+        const lastSpace = chunk.lastIndexOf(' ');
+        const lastSentence = chunk.lastIndexOf('. ');
+        if (lastSentence > -1 && lastSentence > maxLength * 0.6) {
+            chunk = message.slice(0, lastSentence + 2);
+        } else if (lastNewline > -1 && lastNewline > maxLength * 0.5) {
+            chunk = message.slice(0, lastNewline + 1);
+        } else if (lastSpace > -1 && lastSpace > maxLength * 0.5) {
+            chunk = message.slice(0, lastSpace + 1);
+        }
+        chunks.push(chunk.trim());
+        message = message.slice(chunk.length).trim();
+    }
+    return chunks.filter(chunk => chunk.length > 0);
 }
