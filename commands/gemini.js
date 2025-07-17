@@ -23,7 +23,7 @@ module.exports = {
             console.log('Cache miss, querying Gemini API...');
             await message.channel.sendTyping();
 
-             const genAI = new GenerativeModel(apiKey, { model: 'gemini-1.5-pro' });
+            const genAI = new GenerativeModel(apiKey, { model: 'gemini-2.5-flash' });
             const result = await genAI.generateContent(prompt);
 
             const candidates = result?.response?.candidates;
