@@ -1,5 +1,4 @@
-require('dotenv').config()
-
+ 
 const axios = require('axios');
 const { getCache, setCache } = require('../redis/redisUtils');
 
@@ -24,7 +23,7 @@ module.exports = {
             console.log('Cache miss, querying backend...');
             await message.channel.sendTyping();
 
-            const response = await axios.post('http://localhost:7001/url', { url: urlToShorten }, {
+            const response = await axios.post('https://trmzip.club/url', { url: urlToShorten }, {
                 headers: {
                     'Content-Type': 'application/json',
 
