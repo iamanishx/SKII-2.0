@@ -69,9 +69,9 @@ async function handleEmbeddingMode(message, args, userId) {
     await setCache(userEmbeddingCache, mode, 86400 * 30);
     
     if (mode === 'free') {
-        await message.reply('✅ **Free Local Embeddings** enabled!\n🔹 No API costs\n🔹 Privacy-focused (no data sent to external APIs)\n🔹 Good semantic search quality\n\n*This is the default mode and works great for most use cases.*');
+        await message.reply('✅ **Free Google Embeddings** enabled!\n🔹 Uses your existing Gemini API key\n🔹 High-quality Google text-embedding-004 model\n🔹 Excellent semantic search quality\n🔹 768-dimensional embeddings\n\n*This is the recommended mode using your Google API key.*');
     } else {
-        await message.reply('✅ **Paid OpenRouter Embeddings** enabled!\n🔹 Higher quality embeddings\n🔹 Uses your OpenRouter API credits\n🔹 Best semantic search accuracy\n\n*Make sure you have OpenRouter credits for embedding API calls.*');
+        await message.reply('✅ **Paid OpenRouter Embeddings** enabled!\n🔹 Uses OpenAI text-embedding-3-small model\n🔹 Uses your OpenRouter API credits\n🔹 Alternative high-quality embeddings\n🔹 Falls back to Google embeddings if unavailable\n\n*Uses OpenRouter credits for embedding API calls.*');
     }
 }
 
@@ -162,16 +162,19 @@ async function handleChat(message, args, userId) {
     try {
         await message.channel.sendTyping();
         
-        const recentHistory = await getConversationHistory(userId, channelId);
+        console.log('Searching similar conversations...');
         const similarConversations = await vectorDB.searchSimilarConversations(userMessage, userId, channelId, apiKey, 3);
+        console.log('Found similar conversations:', similarConversations.length);
         
+        const recentHistory = await getConversationHistory(userId, channelId);
         let contextMessages = [];
         
         contextMessages.push(...recentHistory);
+        console.log('Recent history messages:', recentHistory.length);
         
         if (similarConversations.length > 0) {
             const contextSummary = similarConversations
-                .filter(conv => conv.score > 0.7) // Only high similarity matches
+                .filter(conv => conv.score > 0.7)
                 .map(conv => `Previous context: User asked "${conv.userMessage}" and got "${conv.aiResponse.substring(0, 200)}..."`)
                 .join('\n');
             
@@ -186,7 +189,7 @@ async function handleChat(message, args, userId) {
         const messages = [
             {
                 role: 'system',
-                content: 'You are a helpful AI assistant. Use the conversation history and context to provide relevant, contextual responses. Keep responses concise and helpful.'
+                content: 'You are a helpful AI assistant. Answer the user\'s questions directly and accurately. Use any relevant conversation history provided to give contextual responses. Be concise but informative.'
             },
             ...contextMessages,
             {
@@ -196,9 +199,10 @@ async function handleChat(message, args, userId) {
         ];
         
         const modelContextWindow = getModelContextWindow(selectedModel);
-        const trimmedMessages = trimMessages(messages, modelContextWindow * 0.7); // Use 70% of context window
+        const trimmedMessages = trimMessages(messages, modelContextWindow * 0.7); 
         
         console.log(`Using ${trimmedMessages.length} messages for context (${modelContextWindow}k context window)`);
+        console.log('Final messages to API:', JSON.stringify(trimmedMessages, null, 2));
         
         const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
             model: selectedModel,
@@ -216,6 +220,7 @@ async function handleChat(message, args, userId) {
         });
         
         const aiResponse = response.data.choices[0].message.content;
+        console.log('API Response:', aiResponse);
         
         await storeConversation(userId, channelId, userMessage, aiResponse, selectedModel);
         await vectorDB.storeConversation(userId, channelId, userMessage, aiResponse, selectedModel, apiKey);
@@ -344,14 +349,23 @@ function trimMessages(messages, maxTokens) {
         totalChars += messages[0].content.length;
     }
     
-    for (let i = messages.length - 1; i >= 1; i--) {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role === 'user') {
+        totalChars += lastMessage.content.length;
+    }
+    
+    for (let i = messages.length - 2; i >= 1; i--) {
         const messageChars = messages[i].content.length;
         if (totalChars + messageChars <= maxChars) {
-            trimmedMessages.unshift(messages[i]);
+            trimmedMessages.push(messages[i]);
             totalChars += messageChars;
         } else {
             break;
         }
+    }
+    
+    if (lastMessage?.role === 'user') {
+        trimmedMessages.push(lastMessage);
     }
     
     return trimmedMessages;
