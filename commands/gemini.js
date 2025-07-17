@@ -69,10 +69,26 @@ module.exports = {
             }
 
             console.log('Querying Gemini API with context...');
-            const { GoogleGenerativeAI } = require('@google/generative-ai');
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-            const result = await model.generateContent(fullPrompt);
+            let modelName = 'gemini-2.5-pro';
+            let result;
+            try {
+                const { GoogleGenerativeAI } = require('@google/generative-ai');
+                const genAI = new GoogleGenerativeAI(apiKey);
+                const model = genAI.getGenerativeModel({ model: modelName });
+                result = await model.generateContent(fullPrompt);
+            } catch (error) {
+                console.error('Gemini-pro failed, falling back to flash:', error.message);
+                modelName = 'gemini-2.0-flash';
+                try {
+                    const { GoogleGenerativeAI } = require('@google/generative-ai');
+                    const genAI = new GoogleGenerativeAI(apiKey);
+                    const model = genAI.getGenerativeModel({ model: modelName });
+                    result = await model.generateContent(fullPrompt);
+                } catch (fallbackError) {
+                    console.error('Gemini flash also failed:', fallbackError.message);
+                    return message.reply('Both Gemini-pro and flash models failed. Please check your API key or try again later.');
+                }
+            }
 
             const candidates = result?.response?.candidates;
             const content = candidates?.[0]?.content?.parts?.[0]?.text;
