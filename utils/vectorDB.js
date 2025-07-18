@@ -5,8 +5,8 @@ class VectorDB {
     constructor() {
         this.qdrantUrl = process.env.QDRANT_URL || 'http://localhost:6333';
         this.collectionName = 'discord_conversations';
-        this.embeddingModel = 'gemini-embedding-001'; // Current Google embedding model
-        this.fallbackEmbeddingModel = 'embedding-001'; // Legacy fallback (soon deprecated)
+        this.embeddingModel = 'gemini-embedding-001'; 
+        this.fallbackEmbeddingModel = 'embedding-001'; 
     }
 
     async initialize() {
@@ -27,7 +27,7 @@ class VectorDB {
                 try {
                     await axios.put(`${this.qdrantUrl}/collections/${this.collectionName}`, {
                         vectors: {
-                            size: 768, // Google text-embedding-004 uses 768 dimensions
+                            size: 768, 
                             distance: 'Cosine'
                         }
                     });
@@ -52,7 +52,7 @@ class VectorDB {
                     const response = await axios.post('https://openrouter.ai/api/v1/embeddings', {
                         model: 'openai/text-embedding-3-small',
                         input: text,
-                        dimensions: 384 
+                        dimensions: 768  // Changed from 384 to 768 to match vector DB
                     }, {
                         headers: {
                             'Authorization': `Bearer ${apiKey}`,
@@ -91,7 +91,6 @@ class VectorDB {
                 console.log('Primary Google embedding failed, trying legacy model...');
                 console.error('Error:', error.response?.data || error.message);
                 
-                // Try legacy embedding model as fallback (no task type support)
                 try {
                     const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${this.fallbackEmbeddingModel}:embedContent?key=${geminiKey}`, {
                         content: {
@@ -111,7 +110,6 @@ class VectorDB {
             }
         }
         
-        // Fallback to local embeddings
         console.log('Using local embedding generation as last resort...');
         return this.createLocalEmbedding(text);
     }
@@ -169,7 +167,7 @@ class VectorDB {
     async storeConversation(userId, channelId, userMessage, aiResponse, model, apiKey) {
         try {
             const conversationText = `User: ${userMessage}\nAssistant: ${aiResponse}`;
-            const embedding = await this.createEmbedding(conversationText, apiKey, userId, false); // false = isDocument
+            const embedding = await this.createEmbedding(conversationText, apiKey, userId, false);
             
             const point = {
                 id: uuidv4(),

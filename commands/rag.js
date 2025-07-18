@@ -104,7 +104,7 @@ async function handleModels(message, args, userId) {
         
         let modelList = `**${showPaid ? 'Paid' : 'Free'} Models Available:**\n\n`;
         filteredModels.slice(0, 15).forEach((model, index) => {
-            const contextWindow = model.context_length ? `${model.context_length}k` : `${getModelContextWindow(model.id)}k*`;
+            const contextWindow = model.context_length ? `${model.context_length}k` : 'Unknown';
             modelList += `${index + 1}. **${model.id}**\n   Context: ${contextWindow} | ${model.name || 'No description'}\n\n`;
         });
         
@@ -114,7 +114,6 @@ async function handleModels(message, args, userId) {
         
         modelList += `\nUse \`!rag select <model_id>\` to choose a model\n`;
         modelList += `Use \`!rag models ${showPaid ? '' : 'paid'}\` to see ${showPaid ? 'free' : 'paid'} models\n`;
-        modelList += `*Context windows are estimated for optimal performance`;
         
         await message.channel.send(modelList);
         
@@ -131,10 +130,9 @@ async function handleModelSelect(message, args, userId) {
     
     const modelId = args.join('/'); 
     const userModelCache = `user:${userId}:selected_model`;
-    const contextWindow = getModelContextWindow(modelId);
     
     await setCache(userModelCache, modelId, 86400 * 30); 
-    await message.reply(`✅ Model selected: **${modelId}**\n📊 Context Window: **${contextWindow}k tokens**\nYou can now start chatting with \`!rag chat <message>\` or just \`!rag <message>\`\n\n*Tip: Use \`!rag clear\` if conversations get too long for the context window.*`);
+    await message.reply(`✅ Model selected: **${modelId}**\nYou can now start chatting with \`!rag chat <message>\` or just \`!rag <message>\`\n\n*Tip: Use \`!rag clear\` if conversations get too long for the context window.*`);
 }
 
 async function handleChat(message, args, userId) {
@@ -164,7 +162,7 @@ async function handleChat(message, args, userId) {
         
         console.log('Searching similar conversations...');
         const similarConversations = await vectorDB.searchSimilarConversations(userMessage, userId, channelId, apiKey, 3);
-        console.log('Found similar conversations:', similarConversations.length);
+        console.log('Found similar conversations:', similarConversations);
         
         const recentHistory = await getConversationHistory(userId, channelId);
         let contextMessages = [];
@@ -198,16 +196,50 @@ async function handleChat(message, args, userId) {
             }
         ];
         
-        const modelContextWindow = getModelContextWindow(selectedModel);
-        const trimmedMessages = trimMessages(messages, modelContextWindow * 0.7); 
-        
-        console.log(`Using ${trimmedMessages.length} messages for context (${modelContextWindow}k context window)`);
+        const cleanedMessages = messages.map(msg => {
+            if (msg.role === 'assistant' && msg.content) {
+                let cleanedContent = msg.content;
+                
+                cleanedContent = cleanedContent.replace(/<think>[\s\S]*?<\/think>/g, '');
+                cleanedContent = cleanedContent.replace(/<\/think>/g, '');
+                
+                const thinkingPatterns = [
+                    /^Okay, the user.*?(?=\n\n|\n[A-Z]|$)/s,
+                    /^Let me.*?(?=\n\n|\n[A-Z]|$)/s,
+                    /^I need to.*?(?=\n\n|\n[A-Z]|$)/s,
+                    /^First, I.*?(?=\n\n|\n[A-Z]|$)/s,
+                    /^Looking back.*?(?=\n\n|\n[A-Z]|$)/s,
+                    /^Since.*?(?=\n\n|\n[A-Z]|$)/s,
+                    /^The user.*?(?=\n\n|\n[A-Z]|$)/s
+                ];
+                
+                thinkingPatterns.forEach(pattern => {
+                    cleanedContent = cleanedContent.replace(pattern, '');
+                });
+                
+                cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
+                
+                if (!cleanedContent || cleanedContent.length < 10) {
+                    cleanedContent = "I understand.";
+                }
+                
+                return {
+                    role: msg.role,
+                    content: cleanedContent
+                };
+            }
+            return msg;
+        });
+
+        const trimmedMessages = trimContextMessages(cleanedMessages, 8000);
+
+        console.log(`Using ${trimmedMessages.length} messages for context`);
         console.log('Final messages to API:', JSON.stringify(trimmedMessages, null, 2));
         
         const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
             model: selectedModel,
             messages: trimmedMessages,
-            max_tokens: Math.min(1000, modelContextWindow * 0.2 * 1000), // 20% of context for response
+            max_tokens: 1000,
             temperature: 0.7,
             stream: false 
         }, {
@@ -218,6 +250,18 @@ async function handleChat(message, args, userId) {
                 'X-Title': 'Discord Bot'
             }
         });
+        
+        console.log('Full API Response:', JSON.stringify(response.data, null, 2));
+        
+        if (!response.data.choices || !response.data.choices[0] || !response.data.choices[0].message) {
+            console.error('Invalid API response structure:', response.data);
+            if (response.data.error) {
+                await message.reply(`API Error: ${response.data.error.message} (Code: ${response.data.error.code})`);
+            } else {
+                await message.reply('Received invalid response from the API. Please try again.');
+            }
+            return;
+        }
         
         const aiResponse = response.data.choices[0].message.content;
         console.log('API Response:', aiResponse);
@@ -233,11 +277,15 @@ async function handleChat(message, args, userId) {
         if (error.response?.status === 401) {
             await message.reply('Invalid API key. Please setup again: `!rag setup YOUR_API_KEY`');
         } else if (error.response?.status === 400) {
-            await message.reply('Invalid model or request. Please select a different model.');
+            console.error('Bad request details:', error.response?.data);
+            await message.reply('Invalid model or request. Please select a different model or try again.');
+        } else if (error.response?.status === 500) {
+            console.error('Server error details:', error.response?.data);
+            await message.reply('OpenRouter server error. The messages may be too long or malformed. Try `!rag clear` to reset history.');
         } else if (error.response?.status === 413 || error.message.includes('context')) {
             await message.reply('Message too long for model context. Try a shorter message or use `!rag clear` to reset conversation history.');
         } else {
-            await message.reply('An error occurred while processing your message.');
+            await message.reply('An error occurred while processing your message. Please try again.');
         }
     }
 }
@@ -339,13 +387,12 @@ async function storeConversation(userId, channelId, userMessage, aiResponse, mod
     await setCache(historyKey, JSON.stringify(trimmedHistory), 86400 * 7);
 }
 
-function trimMessages(messages, maxTokens) {
-    const maxChars = maxTokens * 4;
+function trimContextMessages(messages, maxChars) {
+    const trimmed = [];
     let totalChars = 0;
-    const trimmedMessages = [];
     
     if (messages[0]?.role === 'system') {
-        trimmedMessages.push(messages[0]);
+        trimmed.push(messages[0]);
         totalChars += messages[0].content.length;
     }
     
@@ -357,7 +404,7 @@ function trimMessages(messages, maxTokens) {
     for (let i = messages.length - 2; i >= 1; i--) {
         const messageChars = messages[i].content.length;
         if (totalChars + messageChars <= maxChars) {
-            trimmedMessages.push(messages[i]);
+            trimmed.push(messages[i]);
             totalChars += messageChars;
         } else {
             break;
@@ -365,32 +412,10 @@ function trimMessages(messages, maxTokens) {
     }
     
     if (lastMessage?.role === 'user') {
-        trimmedMessages.push(lastMessage);
+        trimmed.push(lastMessage);
     }
     
-    return trimmedMessages;
-}
-
-function getModelContextWindow(modelId) {
-    const contextWindows = {
-        'mistralai/mistral-7b-instruct:free': 8,
-        'microsoft/phi-3-mini-128k-instruct:free': 128,
-        'huggingfaceh4/zephyr-7b-beta:free': 4,
-        'openchat/openchat-7b:free': 8,
-        'google/gemma-2-9b-it:free': 8,
-        'meta-llama/llama-3.1-8b-instruct:free': 128,
-        
-        'openai/gpt-4': 8,
-        'openai/gpt-4-turbo': 128,
-        'openai/gpt-3.5-turbo': 16,
-        'anthropic/claude-3-sonnet': 200,
-        'anthropic/claude-3-haiku': 200,
-        'google/gemini-pro': 32,
-        'meta-llama/llama-3.1-70b-instruct': 128,
-        'mistralai/mistral-large': 32,
-    };
-    
-    return contextWindows[modelId] || 8;
+    return trimmed;
 }
 
 async function sendResponseWithTyping(channel, response) {
